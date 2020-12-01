@@ -10,6 +10,9 @@
 
 using namespace std;
 
+string ERROR_MSG = "ERROR\n";
+string ERROR_INVALID_ARGS = "You must provide all arguments. For example:\nrsa -e -k key_components.txt -f filename.ext -o outfilename.ext\n\n";
+
 class RSAKey {
     public:
     BigInt n; //modulus
@@ -44,15 +47,24 @@ bool decrypt = false;
  * This value depends on, and is equal to, the size in bytes of the
  * modulus of the key that is used for encryption and decryption.
  * 
- * 128 is the size when using 1024-bit excryption
+ * 128 is the size when using 1024-bit encryption key
  */
 int CIPHER_CHUNK_SIZE = 128;
+/**
+ * The minimum amount of padding to add to plaintext chunks before
+ * encrypting them.  The amount of random bytes added is equal to
+ * MIN_PAD - 3.
+ * 
+ * PKCS#1 reccommends a value of at least 11.
+ */
+int MIN_PAD = 4;
+// todo: put MIN_PAD back to 11
 /**
  * This is the maximum size, in bytes, that chunks of data (plaintext)
  * can split into in order to be used in RSA encryption.
  *  
  * 117 bytes per encryption chunk is the MAX_PLAIN_CHUNK_SIZE for a
- * key.n_size of 128.  (1024 bit)
+ * key.n size of 128.  (1024 bit)
  * 
  * In general, this value is equal to (CIPHER_CHUNK_SIZE - 11). This allows
  * for at least 8 bytes of random pad (and 3 bytes of padding markers)
@@ -65,34 +77,32 @@ int MAX_PLAIN_CHUNK_SIZE = 117;
  * 
  * todo: make sure this is properly set in the decryption flow
  */
-int messagesize = 0;
+int MESSAGE_SIZE = 0;
 /**
  * The first chunk of bytes that the plaintext is split into will likely
  * be less than MAX_PLAIN_CHUNK_SIZE bytes.  This is the size in bytes
  * of that first chunk.
  */
-int first_chunk_size = 0;
+int FIRST_CHUNK_SIZE = 0;
 /**
- * The size of the array of the plaintext separated into chunks.
+ * The size for the arrays that will hold the plaintext, padded plaintext, and ciphertext.
  * 
- * This is the number of chunks of size MAX_PLAIN_CHUNK_SIZE (with the first
- * chunk being of sizefirst_chunk_size) that the message (plaintext) will
- * be split into in order to apply the RSA encryption.
+ * This is the number of chunks that the message will be split into
+ * in order to perform the encryption and decryption.
  */
-int plaintext_array_size = 0;
+int MSG_ARRAY_SIZE = 0;
 unsigned char** plaintext_array = nullptr;
-int padtext_array_size = 0;
 unsigned char** padtext_array = nullptr;
 BigInt* padtext_array_b = nullptr;
-int ciphertext_array_size = 0;
 BigInt* ciphertext_array_b = nullptr;
 unsigned char** ciphertext_array = nullptr;
 
 int readRSAKeyComponentsFile(string filename, RSAKey& key);
 string readNextHexValue(ifstream &in, string &line);
-int pkcs1pad2(int n_modulus_bytelength, int chunk_size, int index);
-int pkcs1unpad2(int n_modulus_bytelength, int* chunk_size, int index);
+int pkcs1pad2(int padded_msg_size, int msg_size, int index);
+int pkcs1unpad2(int padded_msg_size, int* msg_size, int index);
 void printMessageArrays();
+void ERROR(string err_msg = "");
 
 /**
  * Should receive a line of the form:
@@ -147,13 +157,18 @@ int readRSAKeyComponentsFile(string filename, RSAKey& key) {
     if (strcmp(line.substr(0,8).c_str(), "modulus:") == 0) {
         string hexVal = readNextHexValue(in, line);
         if (!hexToBigInt(hexVal, key.n)) return 0;
+        CIPHER_CHUNK_SIZE = bytelength(key.n);
+        if (CIPHER_CHUNK_SIZE < 16) {
+            ERROR("ERROR: please provide an RSA key that's 128 bits or larger.\n");
+            return 0;
+        }
+        MAX_PLAIN_CHUNK_SIZE = CIPHER_CHUNK_SIZE - MIN_PAD;
     } else return 0;
     
-cout << "Before publicExponent: " << line << endl;
     if (strcmp(line.substr(0,15).c_str(), "publicExponent:") == 0) {
         key.e = extractPublicExponent(line);
     } else return 0;
-cout << key.e << endl;
+    cout << "Public Exponent is: " << key.e << endl;
     getline(in, line);
     if (strcmp(line.substr(0,16).c_str(), "privateExponent:") == 0) {
         string hexVal = readNextHexValue(in, line);
@@ -185,6 +200,7 @@ cout << key.e << endl;
         if (!hexToBigInt(hexVal, key.coeff)) return 0;
     } else return 0;
 
+    // just write the contents of the file to console
     // while (getline(in, line)){
     //     cout << line << endl;
     // }
@@ -216,11 +232,12 @@ string readNextHexValue(ifstream &in, string &line) {
 int readInputFile(string filename){
     ifstream in;
     in.open(filename, ios::in | ios::binary);
-    for (size_t i = 0; i < plaintext_array_size; i++) {
-        int chunk_size = (i == 0) ? messagesize % MAX_PLAIN_CHUNK_SIZE : MAX_PLAIN_CHUNK_SIZE;
-        for (size_t j = 0; j < chunk_size; j++) {
-            in.read((char*)&plaintext_array[i][j], sizeof(unsigned char));
-        }
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
+        int chunk_size = (i == 0) ? FIRST_CHUNK_SIZE : MAX_PLAIN_CHUNK_SIZE;
+        // for (size_t j = 0; j < chunk_size; j++) {
+        //     in.read((char*)&plaintext_array[i][j], sizeof(unsigned char));
+        // }
+        in.read((char*)plaintext_array[i], sizeof(unsigned char) * chunk_size);
     }
     in.close();
     return 1;
@@ -229,97 +246,102 @@ int readInputFile(string filename){
 /**
  * Gets binary info from file and stores it in global plaintext_array.
  * 
- * Sets plaintext_array_size to the appropriate size.
+ * Sets MESSAGE_SIZE
+ * Sets MSG_ARRAY_SIZE
+ * Sets FIRST_CHUNK_SIZE
+ * 
+ * Initializes plaintext_array and fills it with values from the file given by filename
  */ 
 int getPlaintextFromFile(string filename) {
-    messagesize = getFilesize(filename);
-    if (!messagesize || key.n == 0) return 0;
-    plaintext_array_size = (messagesize + MAX_PLAIN_CHUNK_SIZE - 1) / MAX_PLAIN_CHUNK_SIZE;
-    first_chunk_size = messagesize % MAX_PLAIN_CHUNK_SIZE;
-    plaintext_array = new unsigned char*[plaintext_array_size]();
-    for (size_t i = 0; i < plaintext_array_size; i++) {
+    // set global variables that are based on file size
+    MESSAGE_SIZE = getFilesize(filename);
+    if (!MESSAGE_SIZE || key.n == 0) return 0;
+    MSG_ARRAY_SIZE = (MESSAGE_SIZE + MAX_PLAIN_CHUNK_SIZE - 1) / MAX_PLAIN_CHUNK_SIZE;
+    FIRST_CHUNK_SIZE = MESSAGE_SIZE % MAX_PLAIN_CHUNK_SIZE;
+    if (FIRST_CHUNK_SIZE == 0) FIRST_CHUNK_SIZE = MAX_PLAIN_CHUNK_SIZE;
+    // initialize plaintext_array
+    plaintext_array = new unsigned char*[MSG_ARRAY_SIZE]();
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
         int chunk_size;
         if (i == 0) {
-            chunk_size = first_chunk_size;
+            chunk_size = FIRST_CHUNK_SIZE;
         } else {
             chunk_size = MAX_PLAIN_CHUNK_SIZE;
         }
         plaintext_array[i] = new unsigned char[chunk_size]();
     }
-
+    // fill plaintext_array with contents from file
     readInputFile(filename);
 
     return 1;
 }
 
-int shoveMessageIntoByteArray(string msg) {
-    for (size_t i = 0; i < plaintext_array_size; i++) {
-        int count = i == 0 ? first_chunk_size : MAX_PLAIN_CHUNK_SIZE;
-        for (size_t j = 0; j < count; j++) {
-            plaintext_array[i][j] = (unsigned char) msg.at((i == 0) ? j : j + first_chunk_size + (i - 1) * MAX_PLAIN_CHUNK_SIZE);
-        }
-    }
-    return 1;
-}
+// int shoveMessageIntoByteArray(string msg) {
+//     for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
+//         int count = i == 0 ? FIRST_CHUNK_SIZE : MAX_PLAIN_CHUNK_SIZE;
+//         for (size_t j = 0; j < count; j++) {
+//             plaintext_array[i][j] = (unsigned char) msg.at((i == 0) ? j : j + FIRST_CHUNK_SIZE + (i - 1) * MAX_PLAIN_CHUNK_SIZE);
+//         }
+//     }
+//     return 1;
+// }
 
-int getPlaintextFromMessage(string msg) {
-    messagesize = msg.length();
-    if (!messagesize || key.n == 0) return 0;
-    plaintext_array_size = (messagesize + MAX_PLAIN_CHUNK_SIZE - 1) / MAX_PLAIN_CHUNK_SIZE;
-    first_chunk_size = messagesize % MAX_PLAIN_CHUNK_SIZE;
-    plaintext_array = new unsigned char*[plaintext_array_size]();
-    for (size_t i = 0; i < plaintext_array_size; i++) {
-        int chunk_size;
-        if (i == 0) {
-            chunk_size = first_chunk_size;
-        } else {
-            chunk_size = MAX_PLAIN_CHUNK_SIZE;
-        }
-        plaintext_array[i] = new unsigned char[chunk_size]();
-    }
+// int getPlaintextFromMessage(string msg) {
+//     MESSAGE_SIZE = msg.length();
+//     if (!MESSAGE_SIZE || key.n == 0) return 0;
+//     MSG_ARRAY_SIZE = (MESSAGE_SIZE + MAX_PLAIN_CHUNK_SIZE - 1) / MAX_PLAIN_CHUNK_SIZE;
+//     FIRST_CHUNK_SIZE = MESSAGE_SIZE % MAX_PLAIN_CHUNK_SIZE;
+//     plaintext_array = new unsigned char*[MSG_ARRAY_SIZE]();
+//     for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
+//         int chunk_size;
+//         if (i == 0) {
+//             chunk_size = FIRST_CHUNK_SIZE;
+//         } else {
+//             chunk_size = MAX_PLAIN_CHUNK_SIZE;
+//         }
+//         plaintext_array[i] = new unsigned char[chunk_size]();
+//     }
 
-    shoveMessageIntoByteArray(msg);
+//     shoveMessageIntoByteArray(msg);
 
-    return 1;
-}
+//     return 1;
+// }
 
 int padPlaintext() {
-    padtext_array_size = plaintext_array_size;
-    
-    padtext_array = new unsigned char*[padtext_array_size]();
-    for (size_t i = 0; i < plaintext_array_size; i++) {
-        int chunk_size = (i == 0) ? messagesize % MAX_PLAIN_CHUNK_SIZE : MAX_PLAIN_CHUNK_SIZE;
-        pkcs1pad2(128, chunk_size, i);
+
+    padtext_array = new unsigned char*[MSG_ARRAY_SIZE]();
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
+        int chunk_size = (i == 0) ? FIRST_CHUNK_SIZE : MAX_PLAIN_CHUNK_SIZE;
+        pkcs1pad2(CIPHER_CHUNK_SIZE, chunk_size, i);
     }
-    padtext_array_b = new BigInt[padtext_array_size]();
-    for (size_t i = 0; i < padtext_array_size; i++) {
-        byteArrayToBigInt(padtext_array_b[i], padtext_array[i], 128);
+    padtext_array_b = new BigInt[MSG_ARRAY_SIZE]();
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
+        byteArrayToBigInt(padtext_array_b[i], padtext_array[i], CIPHER_CHUNK_SIZE);
     }
     return 1;
 }
 
 int modExpoPadtext() {
-    ciphertext_array_size = padtext_array_size;
-    ciphertext_array_b = new BigInt[padtext_array_size]();
-    for (size_t i = 0; i < ciphertext_array_size; i++) {
+    
+    ciphertext_array_b = new BigInt[MSG_ARRAY_SIZE]();
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
         ciphertext_array_b[i] = modExpo(padtext_array_b[i], key.e, key.n);
     }
-    ciphertext_array = new unsigned char*[ciphertext_array_size]();
-    for (size_t i = 0; i < ciphertext_array_size; i++)
+    ciphertext_array = new unsigned char*[MSG_ARRAY_SIZE]();
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++)
     {
-        ciphertext_array[i] = new unsigned char[128]();
-        bigIntToByteArray(ciphertext_array_b[i], ciphertext_array[i], 128);
+        ciphertext_array[i] = new unsigned char[CIPHER_CHUNK_SIZE]();
+        bigIntToByteArray(ciphertext_array_b[i], ciphertext_array[i], CIPHER_CHUNK_SIZE);
     }
-    
     return 1;
 }
 
 int writeCipherToFile(string outfile) {
     ofstream out;
     out.open(outfile, ios::out | ios::binary);
-    for (size_t i = 0; i < ciphertext_array_size; i++)
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++)
     {
-        for (size_t j = 0; j < 128; j++)
+        for (size_t j = 0; j < CIPHER_CHUNK_SIZE; j++)
         {
             out.put(ciphertext_array[i][j]);
         }
@@ -329,7 +351,6 @@ int writeCipherToFile(string outfile) {
 }
 
 int encryptFile(string filename, string outfile) {
-    cout << "encryptFile -----------" << endl;
     getPlaintextFromFile(filename);
     padPlaintext();
     modExpoPadtext();
@@ -340,11 +361,11 @@ int encryptFile(string filename, string outfile) {
 int readCipherFile(string filename){
     ifstream in;
     in.open(filename, ios::in | ios::binary);
-    for (size_t i = 0; i < ciphertext_array_size; i++) {
-        int chunk_size = 128;
-        for (size_t j = 0; j < chunk_size; j++) {
-            in.read((char*)&ciphertext_array[i][j], sizeof(unsigned char));
-        }
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
+        // for (size_t j = 0; j < CIPHER_CHUNK_SIZE; j++) {
+        //     in.read((char*)&ciphertext_array[i][j], sizeof(unsigned char));
+        // }
+        in.read((char*)ciphertext_array[i], sizeof(unsigned char) * CIPHER_CHUNK_SIZE);
     }
     in.close();
     return 1;
@@ -353,15 +374,15 @@ int readCipherFile(string filename){
 /**
  * Gets binary info from file and stores it in global ciphertext_array.
  * 
- * Sets ciphertext_array_size to the appropriate size.
+ * Sets MSG_ARRAY_SIZE to the appropriate size.
  */ 
 int getCiphertextFromFile(string filename) {
-    messagesize = getFilesize(filename);
-    if (!messagesize || key.n == 0) return 0;
-    ciphertext_array_size = messagesize / 128; // ciphertext must always be a multiple of 128 bytes in size for 1024 bit keys
-    ciphertext_array = new unsigned char*[ciphertext_array_size]();
-    for (size_t i = 0; i < ciphertext_array_size; i++) {
-        ciphertext_array[i] = new unsigned char[128]();
+    MESSAGE_SIZE = getFilesize(filename);
+    if (!MESSAGE_SIZE || key.n == 0) return 0;
+    MSG_ARRAY_SIZE = MESSAGE_SIZE / CIPHER_CHUNK_SIZE; // ciphertext must always be a multiple of 128 bytes in size for 1024 bit keys
+    ciphertext_array = new unsigned char*[MSG_ARRAY_SIZE]();
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
+        ciphertext_array[i] = new unsigned char[CIPHER_CHUNK_SIZE]();
     }
 
     readCipherFile(filename);
@@ -371,15 +392,14 @@ int getCiphertextFromFile(string filename) {
 
 int modExpoCiphertext() {
     
-    ciphertext_array_b = new BigInt[ciphertext_array_size]();
-    for (size_t i = 0; i < ciphertext_array_size; i++)
+    ciphertext_array_b = new BigInt[MSG_ARRAY_SIZE]();
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++)
     {
-        byteArrayToBigInt(ciphertext_array_b[i], ciphertext_array[i], 128);
+        byteArrayToBigInt(ciphertext_array_b[i], ciphertext_array[i], CIPHER_CHUNK_SIZE);
     }
 
-    padtext_array_size = ciphertext_array_size;
-    padtext_array_b = new BigInt[ciphertext_array_size]();
-    for (size_t i = 0; i < padtext_array_size; i++) {
+    padtext_array_b = new BigInt[MSG_ARRAY_SIZE]();
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
         padtext_array_b[i] = modExpo(ciphertext_array_b[i], key.d, key.n);
     }
 
@@ -387,19 +407,19 @@ int modExpoCiphertext() {
 }
 
 int unpadPadtext() {
-    padtext_array = new unsigned char*[padtext_array_size]();
-    for (size_t i = 0; i < padtext_array_size; i++)
+    // convert padtext_array_b to padtext_array
+    padtext_array = new unsigned char*[MSG_ARRAY_SIZE]();
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++)
     {
-        padtext_array[i] = new unsigned char[128]();
-        bigIntToByteArray(padtext_array_b[i], padtext_array[i], 128);
+        padtext_array[i] = new unsigned char[CIPHER_CHUNK_SIZE]();
+        bigIntToByteArray(padtext_array_b[i], padtext_array[i], CIPHER_CHUNK_SIZE);
     }
-
-    plaintext_array_size = padtext_array_size;
-
-    for (size_t i = 0; i < padtext_array_size; i++) {
+    // unpad padtext_array and put results into plaintext_array
+    plaintext_array = new unsigned char*[MSG_ARRAY_SIZE]();
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
         int chunk_size = 0;
-        pkcs1unpad2(128, &chunk_size, i);
-        if (i == 0) first_chunk_size = chunk_size;
+        pkcs1unpad2(CIPHER_CHUNK_SIZE, &chunk_size, i);
+        if (i == 0) FIRST_CHUNK_SIZE = chunk_size;
     }
     return 1;
 }
@@ -407,9 +427,9 @@ int unpadPadtext() {
 int writePlaintextToFile(string outfile) {
     ofstream out;
     out.open(outfile, ios::out | ios::binary);
-    for (size_t i = 0; i < plaintext_array_size; i++)
+    for (size_t i = 0; i < MSG_ARRAY_SIZE; i++)
     {
-        int count = i == 0 ? first_chunk_size : MAX_PLAIN_CHUNK_SIZE;
+        int count = i == 0 ? FIRST_CHUNK_SIZE : MAX_PLAIN_CHUNK_SIZE;
         for (size_t j = 0; j < count; j++)
         {
             out.put(plaintext_array[i][j]);
@@ -420,24 +440,20 @@ int writePlaintextToFile(string outfile) {
 }
 
 int decryptFile(string filename, string outfile) {
-    cout << "decryptFile -----------" << endl;
     getCiphertextFromFile(filename);
-printMessageArrays();
     modExpoCiphertext();
-printMessageArrays();
     unpadPadtext();
     writePlaintextToFile(outfile);
     return 1;
 }
 
-// pkcs1pad2 (plaintext, #bytes in key.n)
-int pkcs1pad2(int n_modulus_bytelength, int chunk_size, int index) {
-    if(n_modulus_bytelength < chunk_size + 11) {
-        return 0; // error, plaintext chunk is too large or key.n is too small
+int pkcs1pad2(int padded_msg_size, int msg_size, int index) {
+    if(padded_msg_size < msg_size + MIN_PAD) {
+        ERROR("msg_size input to pkcs1pad2 was too large\n");
     }
-    padtext_array[index] = new unsigned char[n_modulus_bytelength]();
-    int i = chunk_size - 1;
-    int n = n_modulus_bytelength;
+    padtext_array[index] = new unsigned char[padded_msg_size]();
+    int i = msg_size - 1;
+    int n = padded_msg_size;
     while (i >= 0 && n > 0) {
         unsigned char c = plaintext_array[index][i--];
         padtext_array[index][--n] = c;
@@ -451,16 +467,15 @@ int pkcs1pad2(int n_modulus_bytelength, int chunk_size, int index) {
     }
     padtext_array[index][--n] = 2;
     padtext_array[index][--n] = 0;
-    // delete[] plaintext;
-    // return bytearray;
     return 1;
 }
 
-// pkcs1unpad2 (plaintext, #bytes in key.n)
-int pkcs1unpad2(int n_modulus_bytelength, int* chunk_size, int index) {
+// pad_array -> plain_array
+// set msg_size to
+int pkcs1unpad2(int padded_msg_size, int* msg_size, int index) {
     
     int i = 0;
-    while (i < n_modulus_bytelength && padtext_array[index][i] == 0) {
+    while (i < padded_msg_size && padtext_array[index][i] == 0) {
         i++;
     }
     if (i != 1 || padtext_array[index][i] != 2) {
@@ -468,15 +483,12 @@ int pkcs1unpad2(int n_modulus_bytelength, int* chunk_size, int index) {
     }
     ++i;
     while (padtext_array[index][i] != 0) {
-        if (++i >= n_modulus_bytelength) return 0;
+        if (++i >= padded_msg_size) return 0;
     }
-
-    int plaintext_start_index = i + 1; // 118
-    *chunk_size = n_modulus_bytelength - plaintext_start_index;
-    // unsigned char* plaintext = new unsigned char[*chunk_size]();
-        // 118
-    plaintext_array[index] = new unsigned char[n_modulus_bytelength + 1 - plaintext_start_index]();
-    while (++i < n_modulus_bytelength) {
+    int plaintext_start_index = i + 1;
+    *msg_size = padded_msg_size - plaintext_start_index;
+    plaintext_array[index] = new unsigned char[padded_msg_size + 1 - plaintext_start_index]();
+    while (++i < padded_msg_size) {
         plaintext_array[index][i - plaintext_start_index] = padtext_array[index][i];
     }
     // delete[] padtext;
@@ -485,12 +497,12 @@ int pkcs1unpad2(int n_modulus_bytelength, int* chunk_size, int index) {
 }
 
 void printMessageArrays() {
-    cout << "plaintext_array_size " << plaintext_array_size << endl;
-    if (plaintext_array_size && first_chunk_size) {
+    cout << "MSG_ARRAY_SIZE " << MSG_ARRAY_SIZE << endl;
+    if (plaintext_array) {
         cout << "plaintext_array:" << endl; 
-        for (size_t i = 0; i < plaintext_array_size; i++)
+        for (size_t i = 0; i < MSG_ARRAY_SIZE; i++)
         {
-            int count = i == 0 ? first_chunk_size : MAX_PLAIN_CHUNK_SIZE;
+            int count = i == 0 ? FIRST_CHUNK_SIZE : MAX_PLAIN_CHUNK_SIZE;
             for (size_t j = 0; j < count; j++)
             {
                 cout << charToBinaryString(plaintext_array[i][j]) << " ";
@@ -498,12 +510,11 @@ void printMessageArrays() {
             cout << endl;
         }
     }
-    if (padtext_array_size) {
+    if (padtext_array) {
         cout << "padtext_array:" << endl; 
-        for (size_t i = 0; i < padtext_array_size; i++)
+        for (size_t i = 0; i < MSG_ARRAY_SIZE; i++)
         {
-            int count = 128;
-            for (size_t j = 0; j < count; j++)
+            for (size_t j = 0; j < CIPHER_CHUNK_SIZE; j++)
             {
                 cout << "";
                 cout << charToBinaryString(padtext_array[i][j]) << " ";
@@ -513,24 +524,23 @@ void printMessageArrays() {
     }
     if (padtext_array_b && padtext_array_b[0] != 0) {
         cout << "padtext_array_b:" << endl; 
-        for (size_t i = 0; i < padtext_array_size; i++)
+        for (size_t i = 0; i < MSG_ARRAY_SIZE; i++)
         {
             cout << padtext_array_b[i] << endl;;
         }
     }
     if (ciphertext_array_b && ciphertext_array_b[0] != 0) {
         cout << "ciphertext_array_b:" << endl; 
-        for (size_t i = 0; i < ciphertext_array_size; i++)
+        for (size_t i = 0; i < MSG_ARRAY_SIZE; i++)
         {
             cout << ciphertext_array_b[i] << endl;;
         }
     }
-    if (ciphertext_array_size) {
+    if (ciphertext_array) {
         cout << "ciphertext_array:" << endl; 
-        for (size_t i = 0; i < ciphertext_array_size; i++)
+        for (size_t i = 0; i < MSG_ARRAY_SIZE; i++)
         {
-            int count = 128;
-            for (size_t j = 0; j < count; j++)
+            for (size_t j = 0; j < CIPHER_CHUNK_SIZE; j++)
             {
                 cout << charToBinaryString(ciphertext_array[i][j]) << " ";
             }
@@ -544,10 +554,15 @@ void printInvalidArguments() {
     << "rsa -e -k key_components.txt -f filename.ext -o outfilename.ext\n\n";
 }
 
+void ERROR(string err_msg) {
+    if (err_msg != "") ERROR_MSG += err_msg;
+    cout << ERROR_MSG;
+    exit(1);
+}
+
 void test2() {
-    string s = "publicExponent: 65537 (0x10001)";
-    s = extractPublicExponent(s);
-    cout << "\"" << s << "\"" << endl;
+    cout << "test2()\n\n" << endl;
+    
 }
 
 /**
@@ -561,9 +576,14 @@ void test2() {
  * 
  **/ 
 int main(int argc, char** argv) {
+
+    milliseconds time1 = duration_cast< milliseconds >(
+        system_clock::now().time_since_epoch()
+    );
+
     if (argc < 8) {
         test2();
-        printInvalidArguments();
+        ERROR(ERROR_INVALID_ARGS);
         return 0;
     }
     if (strcmp(argv[1], "-e") == 0) {
@@ -571,7 +591,7 @@ int main(int argc, char** argv) {
     } else if (strcmp(argv[1], "-d") == 0) {
         decrypt = true;
     } else {
-        printInvalidArguments();
+        ERROR(ERROR_INVALID_ARGS);
         return 0;
     }
     if (strcmp(argv[2], "-k") == 0 &&
@@ -581,11 +601,17 @@ int main(int argc, char** argv) {
             if (encrypt) encryptFile(argv[5], argv[7]);
             else if (decrypt) decryptFile(argv[5], argv[7]);
     } else {
-        printInvalidArguments();
+        ERROR(ERROR_INVALID_ARGS);
         return 0;
     }
 
     printMessageArrays();
+    
+    milliseconds time2 = duration_cast< milliseconds >(
+        system_clock::now().time_since_epoch()
+    );
+
+    cout << "time2 - time1: " << (time2 - time1).count() << endl;
 
     return 1;
 }

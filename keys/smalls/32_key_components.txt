@@ -1,0 +1,12 @@
+Private-Key: (32 bit)
+modulus: 2598968569 (0x9ae91cf9)
+publicExponent: 65537 (0x10001)
+privateExponent: 156478441 (0x953abe9)
+prime1: 51827 (0xca73)
+prime2: 50147 (0xc3e3)
+exponent1: 15747 (0x3d83)
+exponent2: 22921 (0x5989)
+coefficient: 28474 (0x6f3a)
+-----BEGIN RSA PRIVATE KEY-----
+MCsCAQACBQCa6Rz5AgMBAAECBAlTq+kCAwDKcwIDAMPjAgI9gwICWYkCAm86
+-----END RSA PRIVATE KEY-----

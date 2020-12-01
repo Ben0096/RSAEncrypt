@@ -4,8 +4,8 @@
 #include <math.h>
 #include <cstring>
 #include <string>
-#include "BigInt.hpp"
 #include <chrono>
+#include "BigInt.hpp"
 
 using namespace std;
 using namespace std::chrono;
@@ -23,9 +23,9 @@ BigInt modExpo(BigInt m, BigInt e, BigInt n);
 BigInt modExpo(BigInt m, int e, BigInt n);
 
 void removeCharsFromString( string &str, char const * charsToRemove ) {
-   for ( unsigned int i = 0; i < strlen(charsToRemove); ++i ) {
-      str.erase( remove(str.begin(), str.end(), charsToRemove[i]), str.end() );
-   }
+    for ( unsigned int i = 0; i < strlen(charsToRemove); ++i ) {
+        str.erase( remove(str.begin(), str.end(), charsToRemove[i]), str.end() );
+    }
 }
 
 int hexToBigInt(string hex, BigInt& b) {
@@ -116,10 +116,18 @@ int bigIntToByteArray(BigInt& b, unsigned char* bytearray, int bytelength) {
     string binstring = bigIntToBinaryString(b);
     for (int i = bytelength - 1; i > 0; i--){
         int len = binstring.length();
-        bytearray[i] = stoi(binstring.substr(len - 8), 0, 2);
-        binstring = binstring.substr(0, len - 8);
+        if (len > 8) { // more than 8 digits left
+            bytearray[i] = stoi(binstring.substr(len - 8), 0, 2);
+            binstring = binstring.substr(0, len - 8);
+        } else if (len > 0) {
+            bytearray[i] = stoi(binstring, 0, 2);
+            binstring = "";
+        } else {
+            bytearray[i] = 0;
+        }
     }
-    bytearray[0] = stoi(binstring, 0, 2);
+    if (binstring.length() > 0)
+        bytearray[0] = stoi(binstring, 0, 2);
     return bytelength;
 }
 
@@ -152,93 +160,31 @@ BigInt modExpo(BigInt m, BigInt e, BigInt n) {
     }
     return r;
 }
+// jsbn.ts 463
+// BigInt modPow(BigInt m, BigInt e, BigInt n) {
+//     int i = bitlength(e);
+//     int k;
+//     BigInt r = 1;
+//     if (i <= 0) {
+//         return r;
+//     } else if (i < 18) {
+//         k = 1;
+//     } else if (i < 48) {
+//         k = 3;
+//     } else if (i < 144) {
+//         k = 4;
+//     } else if (i < 768) {
+//         k = 5;
+//     } else {
+//         k = 6;
+//     }
+//     return m;
+// }
 
 void test();
 
 void test() {
 
-    // cout << "BigInt test\n";
-
-    // int i = 69822547;
-    // int j = 7;
-    // int k = i^j;
-
-    // cout << k << endl;
-
-    // BigInt bigi = BigInt("4387593284795203459827304597230947592374059827349572384598634763846793485762938457");
-    // BigInt bigj = BigInt(j);
-    // BigInt bigk = pow(bigi, j);
-
-    // cout << bigk << endl;
-    
-    // ofstream ofs ("test.txt", ofstream::out);
-
-    // ofs << "lorem ipsum";
-    // ofs << "morem ipsum" << endl;
-    // ofs << "even morem ipsum" << endl;
-
-    // ofs.close();
-
-    // BigInt b = -600;
-
-    // cout << b.sign << b.value << endl;
-
-    // char c[] = "hey buddy 123456789 123 5678";
-
-    // cout << sizeof(c) << endl;
-    // cout << sizeof(&c) << endl;
-    // cout << c << endl;
-
-    // cout << pow(BigInt(2), 1024) << endl;
-
-    // int asdf = stoi("11011011", 0, 2);
-
-    // cout << "stoi(\"11011011\", 0, 2): " << asdf << endl;
-
-    // cout << "\"01234\".substr(0, 3): " << string("01234").substr(0, 3) << endl;
-    // cout << "\"01234\".substr(3): " << string("01234").substr(3) << endl;
-
-    // cout << "charToBinaryString(64): " << charToBinaryString(64) << endl;
-    // cout << "charToBinaryString(254): " << charToBinaryString(254) << endl;
-    // cout << "charToBinaryString(188): " << charToBinaryString(188) << endl;
-    // cout << "charToBinaryString(189): " << charToBinaryString(189) << endl;
-    // cout << "charToBinaryString(15): " << charToBinaryString(15) << endl;
-
-    // int size = bytelength(bigi);
-    // unsigned char* ba = new unsigned char[size]();
-    // bigIntToByteArray(bigi, ba, size);
-
-    // // cout << "size of byte array: " << size << endl;
-    // // cout << "byte array input: " << bigi << endl;
-    // // for (int i = 0; i < size; i++) {
-    // //     cout << "i: " << i << endl;
-    // //     string s = charToBinaryString(ba[i]);
-    // //     cout << s << endl;
-    // // }
-    // // cout << endl;
-    
-    // cout << "bigi: " << bigi << endl;
-    // // int sizebigi = bytelength(bigi);
-    // // unsigned char* keynarr = new unsigned char[sizebigi]();
-    // // bigIntToByteArray(bigi, keynarr, sizebigi);
-    // byteArrayToBigInt(bigi, ba, size);
-    // cout << "bigi: " << bigi << endl;
-
-    // // for (int i = 0; i < size; i++) {
-    // //     cout << "i: " << i << endl;
-    // //     string s = charToBinaryString(ba[i]);
-    // //     cout << s << endl;
-    // // }
-
-    // size = bytelength(bigi);
-    // unsigned char* ba2 = new unsigned char[size]();
-
-    // BigInt m = string("1234567890123456789012345678901234567890123456789012345678901234567890");
-    // BigInt e = string("12345678900987654321123456789009876543211234567890098765432112345678901234567890123456789012345678901234567890");
-    // BigInt n = string("123456789012345678909087654321908765432112345678901234567890123456789012345678912345678901234567890123456789012345678901234567890");
-    // BigInt m = string("123456789012390123456789012345678901234567890");
-    // BigInt e = string("12345678900987654987655012345678923401234567890");
-    // BigInt n = string("123456789012345678909087654321908765432112345678990");
     // BigInt m = string("6122186887234693563485793847598324958276349587897497");
     // BigInt e = string("10798354783163997432287365823764593264598763483764569");
     // BigInt n = string("131982656512444442202983764598763548736546537478948654629");
