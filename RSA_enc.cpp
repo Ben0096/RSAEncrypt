@@ -166,7 +166,8 @@ int readRSAKeyComponentsFile(string filename, RSAKey& key) {
     } else return 0;
     
     if (strcmp(line.substr(0,15).c_str(), "publicExponent:") == 0) {
-        key.e = extractPublicExponent(line);
+        // key.e = extractPublicExponent(line);
+        key.e = stringToBigUnsigned(extractPublicExponent(line));
     } else return 0;
     cout << "Public Exponent is: " << key.e << endl;
     getline(in, line);
@@ -325,7 +326,7 @@ int modExpoPadtext() {
     
     ciphertext_array_b = new BigInt[MSG_ARRAY_SIZE]();
     for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
-        ciphertext_array_b[i] = modExpo(padtext_array_b[i], key.e, key.n);
+        ciphertext_array_b[i] = modexp(padtext_array_b[i], key.e, key.n);
     }
     ciphertext_array = new unsigned char*[MSG_ARRAY_SIZE]();
     for (size_t i = 0; i < MSG_ARRAY_SIZE; i++)
@@ -379,7 +380,7 @@ int readCipherFile(string filename){
 int getCiphertextFromFile(string filename) {
     MESSAGE_SIZE = getFilesize(filename);
     if (!MESSAGE_SIZE || key.n == 0) return 0;
-    MSG_ARRAY_SIZE = MESSAGE_SIZE / CIPHER_CHUNK_SIZE; // ciphertext must always be a multiple of 128 bytes in size for 1024 bit keys
+    MSG_ARRAY_SIZE = MESSAGE_SIZE / CIPHER_CHUNK_SIZE;
     ciphertext_array = new unsigned char*[MSG_ARRAY_SIZE]();
     for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
         ciphertext_array[i] = new unsigned char[CIPHER_CHUNK_SIZE]();
@@ -397,10 +398,10 @@ int modExpoCiphertext() {
     {
         byteArrayToBigInt(ciphertext_array_b[i], ciphertext_array[i], CIPHER_CHUNK_SIZE);
     }
-
+    
     padtext_array_b = new BigInt[MSG_ARRAY_SIZE]();
     for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
-        padtext_array_b[i] = modExpo(ciphertext_array_b[i], key.d, key.n);
+        padtext_array_b[i] = modexp(ciphertext_array_b[i], key.d, key.n);
     }
 
     return 1;
@@ -549,11 +550,6 @@ void printMessageArrays() {
     }
 }
 
-void printInvalidArguments() {
-    cout << "ERROR\nYou must provide all arguments for example:\n"
-    << "rsa -e -k key_components.txt -f filename.ext -o outfilename.ext\n\n";
-}
-
 void ERROR(string err_msg) {
     if (err_msg != "") ERROR_MSG += err_msg;
     cout << ERROR_MSG;
@@ -605,7 +601,7 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    printMessageArrays();
+    // printMessageArrays();
     
     milliseconds time2 = duration_cast< milliseconds >(
         system_clock::now().time_since_epoch()

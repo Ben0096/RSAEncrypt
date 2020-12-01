@@ -5,7 +5,11 @@
 #include <cstring>
 #include <string>
 #include <chrono>
-#include "BigInt.hpp"
+// #include "BigInt.hpp"
+
+#include "BigInteger.hpp"
+
+typedef BigUnsigned BigInt;
 
 using namespace std;
 using namespace std::chrono;
@@ -20,7 +24,8 @@ string charToBinaryString(unsigned char b);
 int bigIntToByteArray(BigInt& b, unsigned char* bytearray, int bytelength);
 int byteArrayToBigInt(BigInt& b, unsigned char* bytearray, int bytelength);
 BigInt modExpo(BigInt m, BigInt e, BigInt n);
-BigInt modExpo(BigInt m, int e, BigInt n);
+BigInt pow(BigInt base, BigInt exp);
+
 
 void removeCharsFromString( string &str, char const * charsToRemove ) {
     for ( unsigned int i = 0; i < strlen(charsToRemove); ++i ) {
@@ -34,17 +39,8 @@ int hexToBigInt(string hex, BigInt& b) {
     removeCharsFromString(temp, "0123456789ABCDEFabcdef");
     if (temp.length() > 0) return 0;
 
-    b = 0;
-    string hexDigits = "0123456789abcdef";
-    int power = hex.length() - 1;
-    BigInt powerOf16 = pow(BigInt(16), power);
-    for (char const &c : hex) {
-        if (int hexDigitValue = hexDigits.find(tolower(c)))
-            b += powerOf16 * hexDigitValue;
-        powerOf16 /= 16;
-        // cout << c;
-    }
-    // cout << endl;
+    b = BigUnsignedInABase(hex, 16);
+
     return 1;
 }
 
@@ -64,24 +60,16 @@ int getFilesize(string filename) {
 }
 
 string bigIntToBinaryString(BigInt& b) {
-    string binstring = "";
-    for (BigInt t = BigInt(b); t > 0; t /= 2) {
-        if ((int)t.to_string().back() % 2) {
-            binstring = "1" + binstring;
-        } else {
-            binstring = "0" + binstring;
-        }
-    }
-    return binstring;
+    string s = string(BigUnsignedInABase(b, 2));
+    return s;
 }
 
 int bitlength(BigInt& b) {
-    return bigIntToBinaryString(b).length();
+    return b.bitLength();
 }
 
 int bytelength(BigInt& b) {
-    int bitlen = bigIntToBinaryString(b).length();
-    return (bitlen + 7) / 8;
+    return (bitlength(b) + 7) / 8;
 }
 
 string charToBinaryString(unsigned char b) {
@@ -148,38 +136,21 @@ int byteArrayToBigInt(BigInt& b, unsigned char* bytearray, int bytelength) {
     return bytelength;
 }
 
-BigInt modExpo(BigInt m, BigInt e, BigInt n) {
-    BigInt r = 1;
-    while (1) {
-        if (e % 2 == 1) {
-            r = r * m % n;
-        }
-        e /= 2;
-        if (e == 0) break;
-        m = m * m % n;
-    }
-    return r;
+BigInt pow(BigInt base, BigInt exp) {
+    BigInt ans = 1, base2 = base;
+	BigInt::Index i = exp.bitLength();
+	// For each bit of the exponent, most to least significant...
+	while (i > 0) {
+		i--;
+		// Square.
+		ans *= ans;
+		// And multiply if the bit is a 1.
+		if (exp.getBit(i)) {
+			ans *= base2;
+		}
+	}
+	return ans;
 }
-// jsbn.ts 463
-// BigInt modPow(BigInt m, BigInt e, BigInt n) {
-//     int i = bitlength(e);
-//     int k;
-//     BigInt r = 1;
-//     if (i <= 0) {
-//         return r;
-//     } else if (i < 18) {
-//         k = 1;
-//     } else if (i < 48) {
-//         k = 3;
-//     } else if (i < 144) {
-//         k = 4;
-//     } else if (i < 768) {
-//         k = 5;
-//     } else {
-//         k = 6;
-//     }
-//     return m;
-// }
 
 void test();
 
