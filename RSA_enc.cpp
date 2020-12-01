@@ -13,7 +13,6 @@ using namespace std;
 class RSAKey {
     public:
     BigInt n; //modulus
-    int n_size; // size of n in bytes
     BigInt e; //publicExponent
     BigInt d; //privateExponent
     BigInt p; //prime1
@@ -21,13 +20,8 @@ class RSAKey {
     BigInt dmp1; //exponent1
     BigInt dmq1; //exponent2
     BigInt coeff; //coefficient
-    void set_n(BigInt n) {
-        this->n = n;
-        n_size = bytelength(n);
-    };
     RSAKey(){
         n = 0; //modulus
-        n_size = 0; // size of n in bytes
         e = 0; //publicExponent
         d = 0; //privateExponent
         p = 0; //prime1
@@ -43,9 +37,48 @@ RSAKey key;
 bool encrypt = false;
 bool decrypt = false;
 
-int messagesize = 0; // message size in 128 byte chunks
-int MAX_CHUNK_SIZE = 115; // 115 bytes per encryption chunk (117 max, but set to 115 to be safe)
-int first_chunk_size = 0; // if the entire plaintext is more than MAX_CHUNK_SIZE bytes, the first chunk of bytes will likely be less than MAX_CHUNK_SIZE bytes
+/**
+ * This is the size, in bytes, that chunks of ciphertext will be split
+ * into to be processed.
+ * 
+ * This value depends on, and is equal to, the size in bytes of the
+ * modulus of the key that is used for encryption and decryption.
+ * 
+ * 128 is the size when using 1024-bit excryption
+ */
+int CIPHER_CHUNK_SIZE = 128;
+/**
+ * This is the maximum size, in bytes, that chunks of data (plaintext)
+ * can split into in order to be used in RSA encryption.
+ *  
+ * 117 bytes per encryption chunk is the MAX_PLAIN_CHUNK_SIZE for a
+ * key.n_size of 128.  (1024 bit)
+ * 
+ * In general, this value is equal to (CIPHER_CHUNK_SIZE - 11). This allows
+ * for at least 8 bytes of random pad (and 3 bytes of padding markers)
+ * to be added during encryption.
+ */
+int MAX_PLAIN_CHUNK_SIZE = 117;
+/**
+ * Message size in bytes.  This will be the size of the entire plaintext
+ * file.
+ * 
+ * todo: make sure this is properly set in the decryption flow
+ */
+int messagesize = 0;
+/**
+ * The first chunk of bytes that the plaintext is split into will likely
+ * be less than MAX_PLAIN_CHUNK_SIZE bytes.  This is the size in bytes
+ * of that first chunk.
+ */
+int first_chunk_size = 0;
+/**
+ * The size of the array of the plaintext separated into chunks.
+ * 
+ * This is the number of chunks of size MAX_PLAIN_CHUNK_SIZE (with the first
+ * chunk being of sizefirst_chunk_size) that the message (plaintext) will
+ * be split into in order to apply the RSA encryption.
+ */
 int plaintext_array_size = 0;
 unsigned char** plaintext_array = nullptr;
 int padtext_array_size = 0;
@@ -60,6 +93,22 @@ string readNextHexValue(ifstream &in, string &line);
 int pkcs1pad2(int n_modulus_bytelength, int chunk_size, int index);
 int pkcs1unpad2(int n_modulus_bytelength, int* chunk_size, int index);
 void printMessageArrays();
+
+/**
+ * Should receive a line of the form:
+ * 
+ * "publicExponent: 65537 (0x10001)"
+ * 
+ * and return a line of the form:
+ * 
+ * "65537"
+ */
+string extractPublicExponent(string line) {
+    line = line.substr(16);
+    int t = line.find(" (");
+    if (t != string::npos) line = line.substr(0,t);
+    return line;
+}
 
 /**
  * Reads in the given RSA Key components file and returns a new RSAKey
@@ -97,16 +146,14 @@ int readRSAKeyComponentsFile(string filename, RSAKey& key) {
     getline(in, line); // "modulus:"
     if (strcmp(line.substr(0,8).c_str(), "modulus:") == 0) {
         string hexVal = readNextHexValue(in, line);
-        BigInt bn = 0;
-        if (!hexToBigInt(hexVal, bn)) return 0;
-        key.set_n(bn);
+        if (!hexToBigInt(hexVal, key.n)) return 0;
     } else return 0;
     
-    cout << "Before publicExponent: " << line << endl;
+cout << "Before publicExponent: " << line << endl;
     if (strcmp(line.substr(0,15).c_str(), "publicExponent:") == 0) {
-        key.e = 65537; // always = to 65537 (0x10001)
+        key.e = extractPublicExponent(line);
     } else return 0;
-    cout << key.e << endl;
+cout << key.e << endl;
     getline(in, line);
     if (strcmp(line.substr(0,16).c_str(), "privateExponent:") == 0) {
         string hexVal = readNextHexValue(in, line);
@@ -170,7 +217,7 @@ int readInputFile(string filename){
     ifstream in;
     in.open(filename, ios::in | ios::binary);
     for (size_t i = 0; i < plaintext_array_size; i++) {
-        int chunk_size = (i == 0) ? messagesize % MAX_CHUNK_SIZE : MAX_CHUNK_SIZE;
+        int chunk_size = (i == 0) ? messagesize % MAX_PLAIN_CHUNK_SIZE : MAX_PLAIN_CHUNK_SIZE;
         for (size_t j = 0; j < chunk_size; j++) {
             in.read((char*)&plaintext_array[i][j], sizeof(unsigned char));
         }
@@ -187,15 +234,15 @@ int readInputFile(string filename){
 int getPlaintextFromFile(string filename) {
     messagesize = getFilesize(filename);
     if (!messagesize || key.n == 0) return 0;
-    plaintext_array_size = (messagesize + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE;
-    first_chunk_size = messagesize % MAX_CHUNK_SIZE;
+    plaintext_array_size = (messagesize + MAX_PLAIN_CHUNK_SIZE - 1) / MAX_PLAIN_CHUNK_SIZE;
+    first_chunk_size = messagesize % MAX_PLAIN_CHUNK_SIZE;
     plaintext_array = new unsigned char*[plaintext_array_size]();
     for (size_t i = 0; i < plaintext_array_size; i++) {
         int chunk_size;
         if (i == 0) {
             chunk_size = first_chunk_size;
         } else {
-            chunk_size = MAX_CHUNK_SIZE;
+            chunk_size = MAX_PLAIN_CHUNK_SIZE;
         }
         plaintext_array[i] = new unsigned char[chunk_size]();
     }
@@ -207,9 +254,9 @@ int getPlaintextFromFile(string filename) {
 
 int shoveMessageIntoByteArray(string msg) {
     for (size_t i = 0; i < plaintext_array_size; i++) {
-        int count = i == 0 ? first_chunk_size : MAX_CHUNK_SIZE;
+        int count = i == 0 ? first_chunk_size : MAX_PLAIN_CHUNK_SIZE;
         for (size_t j = 0; j < count; j++) {
-            plaintext_array[i][j] = (unsigned char) msg.at((i == 0) ? j : j + first_chunk_size + (i - 1) * MAX_CHUNK_SIZE);
+            plaintext_array[i][j] = (unsigned char) msg.at((i == 0) ? j : j + first_chunk_size + (i - 1) * MAX_PLAIN_CHUNK_SIZE);
         }
     }
     return 1;
@@ -218,15 +265,15 @@ int shoveMessageIntoByteArray(string msg) {
 int getPlaintextFromMessage(string msg) {
     messagesize = msg.length();
     if (!messagesize || key.n == 0) return 0;
-    plaintext_array_size = (messagesize + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE;
-    first_chunk_size = messagesize % MAX_CHUNK_SIZE;
+    plaintext_array_size = (messagesize + MAX_PLAIN_CHUNK_SIZE - 1) / MAX_PLAIN_CHUNK_SIZE;
+    first_chunk_size = messagesize % MAX_PLAIN_CHUNK_SIZE;
     plaintext_array = new unsigned char*[plaintext_array_size]();
     for (size_t i = 0; i < plaintext_array_size; i++) {
         int chunk_size;
         if (i == 0) {
             chunk_size = first_chunk_size;
         } else {
-            chunk_size = MAX_CHUNK_SIZE;
+            chunk_size = MAX_PLAIN_CHUNK_SIZE;
         }
         plaintext_array[i] = new unsigned char[chunk_size]();
     }
@@ -241,7 +288,7 @@ int padPlaintext() {
     
     padtext_array = new unsigned char*[padtext_array_size]();
     for (size_t i = 0; i < plaintext_array_size; i++) {
-        int chunk_size = (i == 0) ? messagesize % MAX_CHUNK_SIZE : MAX_CHUNK_SIZE;
+        int chunk_size = (i == 0) ? messagesize % MAX_PLAIN_CHUNK_SIZE : MAX_PLAIN_CHUNK_SIZE;
         pkcs1pad2(128, chunk_size, i);
     }
     padtext_array_b = new BigInt[padtext_array_size]();
@@ -362,7 +409,7 @@ int writePlaintextToFile(string outfile) {
     out.open(outfile, ios::out | ios::binary);
     for (size_t i = 0; i < plaintext_array_size; i++)
     {
-        int count = i == 0 ? first_chunk_size : MAX_CHUNK_SIZE;
+        int count = i == 0 ? first_chunk_size : MAX_PLAIN_CHUNK_SIZE;
         for (size_t j = 0; j < count; j++)
         {
             out.put(plaintext_array[i][j]);
@@ -396,7 +443,7 @@ int pkcs1pad2(int n_modulus_bytelength, int chunk_size, int index) {
         padtext_array[index][--n] = c;
     }
     padtext_array[index][--n] = 0;
-    srand(time(0));
+    // srand(time(0));  //todo uncomment this line
     while (n > 2) {
         unsigned char c;
         while ((c = rand()) == 0){}
@@ -443,7 +490,7 @@ void printMessageArrays() {
         cout << "plaintext_array:" << endl; 
         for (size_t i = 0; i < plaintext_array_size; i++)
         {
-            int count = i == 0 ? first_chunk_size : MAX_CHUNK_SIZE;
+            int count = i == 0 ? first_chunk_size : MAX_PLAIN_CHUNK_SIZE;
             for (size_t j = 0; j < count; j++)
             {
                 cout << charToBinaryString(plaintext_array[i][j]) << " ";
@@ -494,7 +541,13 @@ void printMessageArrays() {
 
 void printInvalidArguments() {
     cout << "ERROR\nYou must provide all arguments for example:\n"
-    << "rsa -e -k key_components.txt -f filename.ext -o outfilename.ext\n";
+    << "rsa -e -k key_components.txt -f filename.ext -o outfilename.ext\n\n";
+}
+
+void test2() {
+    string s = "publicExponent: 65537 (0x10001)";
+    s = extractPublicExponent(s);
+    cout << "\"" << s << "\"" << endl;
 }
 
 /**
@@ -508,23 +561,31 @@ void printInvalidArguments() {
  * 
  **/ 
 int main(int argc, char** argv) {
+    if (argc < 8) {
+        test2();
+        printInvalidArguments();
+        return 0;
+    }
     if (strcmp(argv[1], "-e") == 0) {
         encrypt = true;
     } else if (strcmp(argv[1], "-d") == 0) {
         decrypt = true;
-    } else printInvalidArguments();
-    if (strcmp(argv[2], "-k")==0) {
-        readRSAKeyComponentsFile(argv[3], key);
-    } else printInvalidArguments();
-    if (strcmp(argv[4], "-f")==0 && strcmp(argv[6], "-o")==0) {
-        if (encrypt) encryptFile(argv[5], argv[7]);
-        else if (decrypt) decryptFile(argv[5], argv[7]);
-    } else printInvalidArguments();
-    
+    } else {
+        printInvalidArguments();
+        return 0;
+    }
+    if (strcmp(argv[2], "-k") == 0 &&
+        strcmp(argv[4], "-f") == 0 &&
+        strcmp(argv[6], "-o") == 0) {
+            readRSAKeyComponentsFile(argv[3], key);
+            if (encrypt) encryptFile(argv[5], argv[7]);
+            else if (decrypt) decryptFile(argv[5], argv[7]);
+    } else {
+        printInvalidArguments();
+        return 0;
+    }
+
     printMessageArrays();
 
-
-
-    // test();
-    return 0;
+    return 1;
 }
