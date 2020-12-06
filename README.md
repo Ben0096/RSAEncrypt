@@ -9,6 +9,7 @@ Dr B: how to test
 cd into the build directory and then type:
 
 ```
+cmake ..
 make
 ```
 
