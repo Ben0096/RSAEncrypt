@@ -4,7 +4,6 @@
 #include <math.h>
 #include <cstring>
 #include <string>
-#include <chrono>
 // #include "BigInt.hpp"
 
 #include "BigInteger.hpp"
@@ -12,8 +11,8 @@
 typedef BigUnsigned BigInt;
 
 using namespace std;
-using namespace std::chrono;
 
+int findLastIndex(string& str, char x);
 void removeCharsFromString( string &str, char const * charsToRemove );
 int hexToBigInt(string hex, BigInt& b);
 int getFilesize(string filename);
@@ -23,9 +22,17 @@ int bytelength(BigInt& b);
 string charToBinaryString(unsigned char b);
 int bigIntToByteArray(BigInt& b, unsigned char* bytearray, int bytelength);
 int byteArrayToBigInt(BigInt& b, unsigned char* bytearray, int bytelength);
-BigInt modExpo(BigInt m, BigInt e, BigInt n);
-BigInt pow(BigInt base, BigInt exp);
+string byteArrayToBinaryString(unsigned char** bytearray, int first_block_size, int block_size, int num_blocks);
 
+int findLastIndex(string& str, char x) 
+{ 
+    // Traverse from right 
+    for (int i = str.length() - 1; i >= 0; i--) 
+        if (str[i] == x) 
+            return i; 
+  
+    return -1; 
+} 
 
 void removeCharsFromString( string &str, char const * charsToRemove ) {
     for ( unsigned int i = 0; i < strlen(charsToRemove); ++i ) {
@@ -62,6 +69,37 @@ int getFilesize(string filename) {
 string bigIntToBinaryString(BigInt& b) {
     string s = string(BigUnsignedInABase(b, 2));
     return s;
+}
+
+string bigIntToHexString(BigInt& b) {
+    string s = string(BigUnsignedInABase(b, 16));
+    return s;
+}
+
+string bigIntToB64String(BigInt& b) {
+    BigUnsignedInABase bib = BigUnsignedInABase(b, 64);
+    int base = 64;
+    int len = bib.getLength();
+    char* s = new char[len +1];
+    s[len] = '\0';
+    unsigned int digitNum, symbolNumInString;
+    for (symbolNumInString = 0; symbolNumInString < len; symbolNumInString++) {
+		digitNum = len - 1 - symbolNumInString;
+		unsigned short theDigit = bib.getDigit(digitNum);
+        if (theDigit < 26)
+            s[symbolNumInString] = char('A' + theDigit);
+        else if (theDigit < 52)
+            s[symbolNumInString] = char('a' + theDigit - 26);
+        else if (theDigit < 62)
+            s[symbolNumInString] = char('0' + theDigit - 52);
+        else if (theDigit == 62)
+            s[symbolNumInString] = char('+');
+        else if (theDigit == 63)
+            s[symbolNumInString] = char('/');
+	}
+	std::string s2(s);
+	delete [] s;
+	return s2;
 }
 
 int bitlength(BigInt& b) {
@@ -136,20 +174,19 @@ int byteArrayToBigInt(BigInt& b, unsigned char* bytearray, int bytelength) {
     return bytelength;
 }
 
-BigInt pow(BigInt base, BigInt exp) {
-    BigInt ans = 1, base2 = base;
-	BigInt::Index i = exp.bitLength();
-	// For each bit of the exponent, most to least significant...
-	while (i > 0) {
-		i--;
-		// Square.
-		ans *= ans;
-		// And multiply if the bit is a 1.
-		if (exp.getBit(i)) {
-			ans *= base2;
-		}
-	}
-	return ans;
+string byteArrayToBinaryString(unsigned char** bytearray, int first_block_size, int block_size, int num_blocks) {
+    string returnString = "";
+    if (bytearray) {
+        for (size_t i = 0; i < num_blocks; i++)
+        {
+            int count = i == 0 ? first_block_size : block_size;
+            for (size_t j = 0; j < count; j++)
+            {
+                returnString += charToBinaryString(bytearray[i][j]) + " ";
+            }
+        }
+    }
+    return returnString;
 }
 
 void test();
