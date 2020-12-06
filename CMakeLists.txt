@@ -2,8 +2,7 @@
 cmake_minimum_required(VERSION 2.8)
 
 set(SOURCES
-	RSA_enc.cpp
-	BigInt.hpp
+	RSA_run.cpp
 	)
 
 set(HEADERS
