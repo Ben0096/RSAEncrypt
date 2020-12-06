@@ -1,0 +1,3 @@
+This is the contents of the test_plaintext.txt file.
+You can verify by checking the file in /examplefiles/test_plaintext.txt
+This test file is 301 bytes in size, so it should be split into 3 chunks in order to encrypt it, and the encrypted file should be 384 bytes in size. (When using a 1024-bit key)
