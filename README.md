@@ -6,6 +6,7 @@ It is still not recommended to attempt to encrypt very large files, as RSA is to
 Dr B: how to test
 ======================
 
+In your terminal or console:
 cd into the build directory and then type:
 
 ```
