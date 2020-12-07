@@ -14,14 +14,14 @@ string ERROR_MSG = "ERROR\n";
 
 class RSAKey {
     public:
-    BigInt n; //modulus
-    BigInt e; //publicExponent
-    BigInt d; //privateExponent
-    BigInt p; //prime1
-    BigInt q; //prime2
-    BigInt dmp1; //exponent1
-    BigInt dmq1; //exponent2
-    BigInt coeff; //coefficient
+    BigUnsigned n; //modulus
+    BigUnsigned e; //publicExponent
+    BigUnsigned d; //privateExponent
+    BigUnsigned p; //prime1
+    BigUnsigned q; //prime2
+    BigUnsigned dmp1; //exponent1
+    BigUnsigned dmq1; //exponent2
+    BigUnsigned coeff; //coefficient
     /**
      * Default constructor
      */
@@ -92,8 +92,8 @@ int FIRST_BLOCK_SIZE = 0;
 int MSG_ARRAY_SIZE = 0;
 unsigned char** plaintext_array = nullptr;
 unsigned char** padtext_array = nullptr;
-BigInt* padtext_array_b = nullptr;
-BigInt* ciphertext_array_b = nullptr;
+BigUnsigned* padtext_array_b = nullptr;
+BigUnsigned* ciphertext_array_b = nullptr;
 unsigned char** ciphertext_array = nullptr;
 
 int readRSAKeyComponentsFile(string filename, RSAKey& key);
@@ -285,7 +285,7 @@ int padPlaintext() {
         int block_size = (i == 0) ? FIRST_BLOCK_SIZE : MAX_PLAIN_BLOCK_SIZE;
         pkcs1pad2(CIPHER_BLOCK_SIZE, block_size, i);
     }
-    padtext_array_b = new BigInt[MSG_ARRAY_SIZE]();
+    padtext_array_b = new BigUnsigned[MSG_ARRAY_SIZE]();
     for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
         byteArrayToBigInt(padtext_array_b[i], padtext_array[i], CIPHER_BLOCK_SIZE);
     }
@@ -294,7 +294,7 @@ int padPlaintext() {
 
 int modExpoPadtext() {
     
-    ciphertext_array_b = new BigInt[MSG_ARRAY_SIZE]();
+    ciphertext_array_b = new BigUnsigned[MSG_ARRAY_SIZE]();
     for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
         ciphertext_array_b[i] = modexp(padtext_array_b[i], key.e, key.n);
     }
@@ -360,13 +360,13 @@ int getCiphertextFromFile(string filename) {
 
 int modExpoCiphertext() {
     
-    ciphertext_array_b = new BigInt[MSG_ARRAY_SIZE]();
+    ciphertext_array_b = new BigUnsigned[MSG_ARRAY_SIZE]();
     for (size_t i = 0; i < MSG_ARRAY_SIZE; i++)
     {
         byteArrayToBigInt(ciphertext_array_b[i], ciphertext_array[i], CIPHER_BLOCK_SIZE);
     }
     
-    padtext_array_b = new BigInt[MSG_ARRAY_SIZE]();
+    padtext_array_b = new BigUnsigned[MSG_ARRAY_SIZE]();
     for (size_t i = 0; i < MSG_ARRAY_SIZE; i++) {
         padtext_array_b[i] = modexp(ciphertext_array_b[i], key.d, key.n);
     }
