@@ -6,7 +6,10 @@ It is still not recommended to attempt to encrypt very large files, as RSA is to
 Dr B: how to test
 ======================
 
-In your terminal or console:
+To work right out of the box, CMake and make are required.
+
+
+Once this repo is downloaded, in your terminal or console:
 cd into the build directory and then type:
 
 ```
@@ -14,7 +17,7 @@ cmake ..
 make
 ```
 
-and then copy paste the following:
+and then copy-paste the following to run the test:
 
 ```
 ./rsa -t -k ../keys/1024_key_components.txt -f ../examplefiles/small_plaintext.txt 
@@ -49,6 +52,9 @@ This is a small text file.
 
 
 =============== RESULTS ===============
+
+Size of the input file: 26 bytes
+Size of the encrypted output file: 128 bytes
 
 Time to encrypt: 28 milliseconds
 Time to decrypt: 667 milliseconds

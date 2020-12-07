@@ -73,8 +73,8 @@ int MIN_PAD = 11;
  */
 int MAX_PLAIN_BLOCK_SIZE = 117;
 /**
- * Message size in bytes.  This will be the size of the entire plaintext
- * file.
+ * Message size in bytes.  This will be the size of the entire file
+ * that is read in.
  */
 int MESSAGE_SIZE = 0;
 /**
@@ -96,7 +96,7 @@ BigUnsigned* padtext_array_b = nullptr;
 BigUnsigned* ciphertext_array_b = nullptr;
 unsigned char** ciphertext_array = nullptr;
 
-int readRSAKeyComponentsFile(string filename, RSAKey& key);
+int readRSAKeyComponentsFile(string filename);
 string readNextHexValue(ifstream &in, string &line);
 int pkcs1pad2(int padded_msg_size, int msg_size, int index);
 int pkcs1unpad2(int padded_msg_size, int* msg_size, int index);
@@ -257,7 +257,11 @@ int readInputFile(string filename){
 int getPlaintextFromFile(string filename) {
     // set global variables that are based on file size
     MESSAGE_SIZE = getFilesize(filename);
-    if (!MESSAGE_SIZE || key.n == 0) return 0;
+    // ERROR if the file doesn't exist/ is empty
+    if (!MESSAGE_SIZE || key.n == 0) {
+        ERROR("Unable to open file " + filename + ".\nThe file may not exist, it may have no contents, or it is otherwise unavailable at the moment.\n");
+        return 0;
+    }
     MSG_ARRAY_SIZE = (MESSAGE_SIZE + MAX_PLAIN_BLOCK_SIZE - 1) / MAX_PLAIN_BLOCK_SIZE;
     FIRST_BLOCK_SIZE = MESSAGE_SIZE % MAX_PLAIN_BLOCK_SIZE;
     if (FIRST_BLOCK_SIZE == 0) FIRST_BLOCK_SIZE = MAX_PLAIN_BLOCK_SIZE;

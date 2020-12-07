@@ -7,7 +7,7 @@
 using namespace std;
 using namespace std::chrono;
 
-string ERROR_INVALID_ARGS = "You must provide all arguments in the specified order. For example:\nrsa -e -k key_components.txt -f filename.ext -o outfilename.ext\n\nYou can also run a test by calling:\nrsa -t -k key_components.txt -f filename.ext\n";
+string ERROR_INVALID_ARGS = "You must provide all arguments in the specified order. For example:\nrsa -e -k key_components.txt -f filename.ext -o outfilename.ext\n\nYou can also run a test by calling:\nrsa -t -k key_components.txt -f filename.ext\n\n";
 
 int runTestCase(string keyfile, string testfile) {
     int filenamestartindex = -1;
@@ -16,14 +16,18 @@ int runTestCase(string keyfile, string testfile) {
     else if (testfile.find('\\') != std::string::npos)
         filenamestartindex = findLastIndex(testfile, '\\');
     int extnindex = findLastIndex(testfile, '.');
-
-    if (testfile.length() == 0 || extnindex == -1) ERROR("Please provide a valid file name.");
+    // ERROR if invalid filename is given
+    if (testfile.length() == 0 || extnindex <= filenamestartindex || extnindex == -1)
+        ERROR("Please provide a valid file name. example:\n./path/to/file/filename.ext\n\n");
 
     string testfilepath = testfile.substr(0, filenamestartindex + 1);
     string testfilename = testfile.substr(filenamestartindex + 1, extnindex - filenamestartindex - 1);
     string testfileextn = testfile.substr(extnindex);
 
-    if (!readRSAKeyComponentsFile(keyfile)) return 0;
+    if (!readRSAKeyComponentsFile(keyfile)) {
+        ERROR("Unable to read key components file.  Please make sure it is in the exact same format as the example key components files in the /keys folder.\n\n");
+        return 0;
+    }
 
     cout << "\n\n=============== BEGINNING RSA ENCRYPTION ===============\n\n";
 
@@ -36,6 +40,8 @@ int runTestCase(string keyfile, string testfile) {
     milliseconds time2 = duration_cast< milliseconds >(
         system_clock::now().time_since_epoch()
     );
+
+    int filesize = MESSAGE_SIZE;
 
     if (strcmp(testfileextn.c_str(), ".txt") == 0) {
         cout << "\nInput file as text:\n";
@@ -70,11 +76,14 @@ int runTestCase(string keyfile, string testfile) {
 
     cout << "\n\n=============== RESULTS ===============\n\n";
 
+    cout << "Size of the input file: " << filesize << " bytes\n";
+    cout << "Size of the encrypted output file: " << MESSAGE_SIZE << " bytes\n\n";
+
     cout << "Time to encrypt: " << (time2 - time1).count() << " milliseconds\n";
     cout << "Time to decrypt: " << (time4 - time3).count() << " milliseconds\n\n";
 
     cout << "The result files, " + testfilename + "_encr.bin and " + testfilename
-        + "_decr" + testfileextn + " can be found in the same directory as the original file.\n";
+        + "_decr" + testfileextn + " can be found in the same directory as the original file.\n\n";
 
     return 1;
 }
